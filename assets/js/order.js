@@ -1,6 +1,6 @@
 // Vérification du panier au chargement
 console.log('Démarrage du script order.js');
-const cart = JSON.parse(localStorage.getItem('cart')) || [];
+let cart = JSON.parse(localStorage.getItem('cart')) || [];
 console.log('Contenu du panier:', cart);
 
 if (cart.length === 0) {
@@ -11,24 +11,42 @@ if (cart.length === 0) {
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM chargé');
     
+    // Éléments du DOM
     const orderSummary = document.getElementById('order-summary');
     const orderSubtotal = document.getElementById('order-subtotal');
     const orderTotal = document.getElementById('order-total');
     const orderForm = document.getElementById('orderForm');
-    const orderConfirmation = new bootstrap.Modal(document.getElementById('orderConfirmation'));
     const orderNumber = document.getElementById('order-number');
     const cartCountElement = document.getElementById('cart-count');
+    
+    // Initialisation de la modale Bootstrap
+    let orderConfirmation;
+    const modalElement = document.getElementById('orderConfirmation');
+    if (modalElement) {
+        orderConfirmation = new bootstrap.Modal(modalElement);
+    }
 
     // Fonction utilitaire pour formater les prix
     function formatPrice(price) {
         return parseFloat(price || 0).toFixed(2).replace('.', ',');
     }
 
+    // Mettre à jour le compteur du panier
+    function updateCartCount() {
+        const cart = JSON.parse(localStorage.getItem('cart')) || [];
+        const cartCountElements = document.querySelectorAll('.cart-count, #cart-count');
+        const totalItems = cart.reduce((total, item) => total + (parseInt(item.quantity) || 0), 0);
+        
+        cartCountElements.forEach(el => {
+            el.textContent = totalItems;
+            el.style.display = totalItems > 0 ? 'inline-block' : 'none';
+        });
+    }
+
     // Afficher le récapitulatif de la commande
     function displayOrderSummary() {
         console.log('Affichage du récapitulatif de la commande');
-        console.log('Nombre d\'articles dans le panier:', cart.length);
-
+        
         if (cart.length === 0) {
             console.log('Panier vide, redirection vers panier.html');
             window.location.href = 'panier.html';
@@ -38,7 +56,7 @@ document.addEventListener('DOMContentLoaded', function() {
         let subtotal = 0;
         let html = '';
 
-        cart.forEach((item, index) => {
+        cart.forEach(item => {
             const itemTotal = (parseFloat(item.price) || 0) * (parseInt(item.quantity) || 1);
             subtotal += itemTotal;
 
@@ -59,62 +77,74 @@ document.addEventListener('DOMContentLoaded', function() {
         updateCartCount();
     }
 
-    // Mettre à jour le compteur du panier
-    function updateCartCount() {
-        let totalItems = 0;
-        cart.forEach(item => {
-            totalItems += parseInt(item.quantity || 0);
-        });
-        if (cartCountElement) {
-            cartCountElement.textContent = totalItems;
-        }
-    }
-
     // Gérer la soumission du formulaire
-    orderForm.addEventListener('submit', function(e) {
+    orderForm.addEventListener('submit', async function(e) {
         e.preventDefault();
-        
         console.log('Soumission du formulaire de commande');
         
-        // Récupérer les données du formulaire
-        const formData = {
-            firstName: document.getElementById('firstName').value,
-            lastName: document.getElementById('lastName').value,
-            email: document.getElementById('email').value,
-            phone: document.getElementById('phone').value,
-            address: document.getElementById('address').value,
-            postalCode: document.getElementById('postalCode').value,
-            city: document.getElementById('city').value,
-            orderDetails: cart.map(item => ({
-                name: item.name,
-                brand: item.brand,
-                price: item.price,
-                quantity: item.quantity,
-                total: (parseFloat(item.price) * parseInt(item.quantity)).toFixed(2)
-            })),
-            subtotal: cart.reduce((sum, item) => sum + (parseFloat(item.price) * parseInt(item.quantity)), 0).toFixed(2)
-        };
+        // Désactiver le bouton de soumission
+        const submitButton = orderForm.querySelector('button[type="submit"]') || 
+        orderForm.querySelector('.btn-primary') || 
+        orderForm.querySelector('button');
+ if (!submitButton) {
+            console.error('Bouton de soumission non trouvé');
+            return;
+        }
+        
+        try {
+            
+        submitButton.disabled = true;
+        submitButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Traitement...';
+       
+            // Récupérer les données du formulaire
+            const formData = {
+                firstName: document.getElementById('firstName').value,
+                lastName: document.getElementById('lastName').value,
+                email: document.getElementById('email').value,
+                phone: document.getElementById('phone').value,
+                address: document.getElementById('address').value,
+                postalCode: document.getElementById('postalCode').value,
+                city: document.getElementById('city').value,
+                orderDetails: cart.map(item => ({
+                    name: item.name,
+                    brand: item.brand,
+                    price: item.price,
+                    quantity: item.quantity,
+                    total: (parseFloat(item.price) * parseInt(item.quantity)).toFixed(2)
+                })),
+                subtotal: cart.reduce((sum, item) => sum + (parseFloat(item.price) * parseInt(item.quantity)), 0).toFixed(2)
+            };
+            formData.total = formData.subtotal;
 
-        formData.total = formData.subtotal; // Total = sous-total (pas de frais de livraison)
+            // Générer un numéro de commande
+            const orderNum = 'CMD-' + Date.now().toString().substr(-8);
+            orderNumber.textContent = orderNum;
 
-        // Générer un numéro de commande
-        const orderNum = 'CMD-' + Date.now().toString().substr(-8);
-        orderNumber.textContent = orderNum;
+            // Envoyer l'email
+            await sendOrderEmail(formData, orderNum);
+            
+            // Afficher la confirmation
+            orderConfirmation.show();
+            
+            // Rediriger après 5 secondes
+            setTimeout(() => {
+                window.location.href = 'index.html';
+            }, 5000);
 
-        // Envoyer l'email (simulation avec SMTP.js)
-        sendOrderEmail(formData, orderNum);
-
-        // Afficher la confirmation
-        orderConfirmation.show();
-
-        // Vider le panier
-        localStorage.removeItem('cart');
+        } catch (error) {
+            console.error('Erreur lors du traitement de la commande:', error);
+            alert('Une erreur est survenue lors du traitement de votre commande. Veuillez réessayer.');
+        } finally {
+            submitButton.disabled = false;
+            submitButton.textContent = 'Valider la commande';
+        }
     });
 
     // Fonction pour envoyer l'email
-    function sendOrderEmail(formData, orderNum) {
+    async function sendOrderEmail(formData, orderNum) {
         console.log('Préparation de l\'envoi de l\'email');
         
+        // Créer le corps de l'email
         const emailBody = `
             <h2>Nouvelle commande #${orderNum}</h2>
             <h3>Informations client :</h3>
@@ -148,31 +178,29 @@ document.addEventListener('DOMContentLoaded', function() {
             </table>
         `;
 
-        console.log('Corps de l\'email préparé');
-
-        // Configuration pour SMTP.js (version de test)
         console.log('Envoi de l\'email...');
-        Email.send({
-            SecureToken: "votre_secure_token", // À remplacer par votre token SMTP.js
+        
+        // Version de test
+        console.log('SIMULATION - Email envoyé avec succès');
+        console.log('Destinataire:', 'wiamihihi038@gmail.com');
+        console.log('Sujet:', `Nouvelle commande #${orderNum}`);
+        console.log('Corps:', emailBody);
+        
+        // Vider le panier
+        localStorage.removeItem('cart');
+        updateCartCount();
+        
+        // Pour activer l'envoi d'email, décommentez le code ci-dessous
+        /*
+        return Email.send({
+            SecureToken: "2197683e-261a-4859-98d4-9d9ea2212460",
             To: 'wiamihihi038@gmail.com',
-            From: 'votre-email@votredomaine.com', // Votre email vérifié
+            From: 'wiamihihi038@gmail.com',
             Subject: `Nouvelle commande #${orderNum}`,
             Body: emailBody,
             IsHtml: true
-        }).then(
-            message => {
-                console.log('Email envoyé avec succès:', message);
-                // Afficher la confirmation
-                orderConfirmation.show();
-                // Vider le panier après l'envoi réussi
-                localStorage.removeItem('cart');
-            }
-        ).catch(
-            error => {
-                console.error('Erreur lors de l\'envoi de l\'email:', error);
-                alert('Une erreur est survenue lors de l\'envoi de la commande. Veuillez réessayer.');
-            }
-        );
+        });
+        */
     }
 
     // Initialisation
